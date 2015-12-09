@@ -44,24 +44,7 @@ function encodeBorn(value, writer) {
                 writer.write(value);
             } else if (value instanceof Date) {
                 writer.writeUInt16BE(types.date);
-
-                writer.writeUInt16BE(value.getFullYear());
-                writer.writeUInt8(value.getMonth());
-                writer.writeUInt8(value.getDate());
-
-                writer.writeUInt8(value.getHours());
-                writer.writeUInt8(value.getMinutes());
-                writer.writeUInt8(value.getSeconds());
-                writer.writeUInt16BE(value.getMilliseconds());
-
-                var timezone = value.getTimezoneOffset();
-                if (timezone < 0) {
-                    writer.writeUInt8(0);
-                } else {
-                    writer.writeUInt8(1);
-                }
-
-                writer.writeUInt16BE(Math.abs(timezone));
+                writer.write(dateToISO(value));
             } else {
                 if (value.constructor !== Object) {
                     value = value.valueOf();
@@ -176,30 +159,10 @@ function decodeBorn(reader) {
         reader.offset += 1;
         return result;
     case types.date:
-        var year = buffer.readUInt16BE(reader.offset);
-        reader.offset += 2;
-        var month = buffer.readUInt8(reader.offset++);
-        var date = buffer.readUInt8(reader.offset++);
+        var skip = reader.offset;
 
-        var hours = buffer.readUInt8(reader.offset++);
-        var minutes = buffer.readUInt8(reader.offset++);
-        var seconds = buffer.readUInt8(reader.offset++);
-        var milliseconds = buffer.readUInt16BE(reader.offset);
-        reader.offset += 2;
-        var tz = buffer.readUInt8(reader.offset++);
-        var timezone = buffer.readUInt16BE(reader.offset);
-        reader.offset += 2;
-
-        var d = new Date();
-        d.setFullYear(year);
-        d.setMonth(month);
-        d.setDate(date);
-        d.setHours(hours);
-        d.setMinutes(minutes);
-        d.setSeconds(seconds);
-        d.setMilliseconds(milliseconds);
-
-        result = new Date(buffer.slice(skip, skip + length).toString('utf8'));
+        result = new Date(buffer.toString('utf8', skip, skip + 25));
+        reader.offset += 25;
         return result;
     default:
         return null;
@@ -214,4 +177,50 @@ function decode(buffer) {
 
     // TODO throw error if buffer length is greater the last offset.
     return decodeBorn(reader);
+}
+
+
+/**
+ * Pad string left.
+ *
+ * @param  {string} str    String to pad.
+ * @param  {string} pad    Pad value.
+ * @param  {number} length Total length.
+ * @return {string}        Padded string.
+ */
+function lpad(str, pad, length) {
+  str = String(str);
+  while (str.length < length) {
+    str = pad + str;
+  }
+
+  return str.slice(-length);
+}
+
+/**
+ * Convert date to ISO date.
+ *
+ * @param  {Date} date Date obect.
+ * @return {string}      ISO date string like: 2015-10-08T18:37:32+0300
+ */
+function dateToISO(date) {
+  var result = date.getFullYear().toString()
+    + lpad(date.getMonth() + 1, '0', 2)
+    + lpad(date.getDate(), '0', 2)
+    + 'T'
+    + lpad(date.getHours(), '0', 2)
+    + lpad(date.getMinutes(), '0', 2)
+    + lpad(date.getSeconds(), '0', 2)
+    + '.' + lpad(date.getMilliseconds(), '0', 3)
+    + 's'
+    + minutesToHours(date.getTimezoneOffset());
+
+  return result;
+}
+
+function minutesToHours(minutes) {
+  var sign = minutes > -1 ? '+' : '-';
+  var hours = Math.abs(Math.ceil(minutes/60));
+  minutes = minutes % 60;
+  return sign + lpad(hours, '0', 2) + lpad(minutes, '0', 2);
 }
