@@ -33,10 +33,11 @@ function encodeBorn(value, writer) {
 
                 // TODO write array length
                 writer.writeUInt32BE(0);
-                value.forEach(value => {
-                    // TODO Count values length to write into length byte
-                    encodeBorn(value, writer);
-                });
+                var l = value.length;
+                var i = -1;
+                while (++i < l) {
+                    encodeBorn(value[i], writer);
+                }
             } else if (Buffer.isBuffer(value)) {
                 writer.writeUInt16BE(types.buffer);
                 writer.writeUInt32BE(value.length);
@@ -59,11 +60,12 @@ function encodeBorn(value, writer) {
                 // TODO write object length
                 writer.writeUInt32BE(0);
 
-                keys.forEach(key => {
-                    // TODO Count values length to write into length byte
-                    encodeBorn(key, writer);
-                    encodeBorn(value[key], writer);
-                });
+                var l = keys.length;
+                var i = -1;
+                while (++i < l) {
+                    encodeBorn(keys[i], writer);
+                    encodeBorn(value[keys[i]], writer);
+                }
             }
             break;
         case "string":
