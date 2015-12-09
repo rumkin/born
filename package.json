@@ -1,0 +1,9 @@
+{
+  "name": "born",
+  "version": "0.1.1",
+  "description": "Binary object representation notation",
+  "main": "src/born.js",
+  "dependencies": {
+    "buffer-write": "0.0.2"
+  }
+}
