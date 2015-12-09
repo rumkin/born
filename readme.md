@@ -118,7 +118,7 @@ All types separated into 4 groups:
 ### Date
 
 Date stored as a string representation of ISO Date. It has format
-`YYYYMMDDTHHmmss.msZ`.
+`YYYY-MM-DDTHH:mm:ss.msZ`.
 
 ```
 0x60 - Date type byte
