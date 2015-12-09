@@ -13,15 +13,27 @@ and could transfer data in base64 with huge overloads.
 BORN is dead simple and has no compatibility breaking extensions. Also it has
 no custom types.
 
+## Principles
+
+* **simplicity** no environment dependencies like `undefined` or `infinity`.
+* **clearence** - it has only basic types and relies on existing standards like ISO Date 8601 for date representation.
+* **efficiency** – variable length elements has optional length parameter
+  for fast seeking and editing.
+
 ## Implementation
 
 This is the first experimental implementation in pure JavaScript and it's
-already faster then CBOR (on encode/decode) and a just little bit faster then
-MsgPack written in C++ (on decode, but not encode yet). So I believe it has a potential to future optimization.
+already faster then CBOR (on encode/decode) and a little bit faster then MsgPack written in C++ (on decode, but not encode yet). So I believe it has a potential to future optimization.
 
 **NOTE** Alpha version does not support int64 numbers.
 
 ## Types
+
+All types separated into 4 groups:
+* Primitives like `null`, `true` or `false`.
+* Numbers like `integer` and `float`.
+* Sets and complex objects: `object`, `array`, `string` or `buffer`
+* Other types like `Date`.
 
 ### NULL
 

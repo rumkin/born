@@ -66,16 +66,24 @@ function encodeBorn(value, writer) {
 
                 var keys = Object.getOwnPropertyNames(value);
                 writer.writeUInt32BE(keys.length);
-
+                var bi = writer._parts.length - 1;
                 // TODO write object length
                 writer.writeUInt32BE(0);
 
                 var l = keys.length;
                 var i = -1;
+                var elements = 0;
+                var key;
                 while (++i < l) {
-                    encodeBorn(keys[i], writer);
-                    encodeBorn(value[keys[i]], writer);
+                    key = keys[i];
+                    if (value[key] === undefined) {
+                        continue;
+                    }
+                    encodeBorn(key, writer);
+                    encodeBorn(value[key], writer);
+                    elements++;
                 }
+                writer._parts[bi].value = elements;
             }
             break;
         case "string":
@@ -110,8 +118,12 @@ function encodeBorn(value, writer) {
                 }
             }
             break;
+        case 'undefined':
+            // TODO skip undefined properties and values
+            writer.writeUInt8(TYPE_NULL);
+            break;
         default:
-            throw new Error("unsupported type '" + (typeof value) + "'");
+            throw new Error('unsupported type "' + (typeof value) + '"');
     }
 
     return writer;
