@@ -44,9 +44,24 @@ function encodeBorn(value, writer) {
                 writer.write(value);
             } else if (value instanceof Date) {
                 writer.writeUInt16BE(types.date);
-                var value = value.toISOString();
-                writer.writeUInt16BE(Buffer.byteLength(value));
-                writer.write(value);
+
+                writer.writeUInt16BE(value.getFullYear());
+                writer.writeUInt8(value.getMonth());
+                writer.writeUInt8(value.getDate());
+
+                writer.writeUInt8(value.getHours());
+                writer.writeUInt8(value.getMinutes());
+                writer.writeUInt8(value.getSeconds());
+                writer.writeUInt16BE(value.getMilliseconds());
+
+                var timezone = value.getTimezoneOffset();
+                if (timezone < 0) {
+                    writer.writeUInt8(0);
+                } else {
+                    writer.writeUInt8(1);
+                }
+
+                writer.writeUInt16BE(Math.abs(timezone));
             } else {
                 if (value.constructor !== Object) {
                     value = value.valueOf();
@@ -161,11 +176,30 @@ function decodeBorn(reader) {
         reader.offset += 1;
         return result;
     case types.date:
-        var length = buffer.readUInt16BE(reader.offset);
-        var skip = reader.offset + 2;
+        var year = buffer.readUInt16BE(reader.offset);
+        reader.offset += 2;
+        var month = buffer.readUInt8(reader.offset++);
+        var date = buffer.readUInt8(reader.offset++);
+
+        var hours = buffer.readUInt8(reader.offset++);
+        var minutes = buffer.readUInt8(reader.offset++);
+        var seconds = buffer.readUInt8(reader.offset++);
+        var milliseconds = buffer.readUInt16BE(reader.offset);
+        reader.offset += 2;
+        var tz = buffer.readUInt8(reader.offset++);
+        var timezone = buffer.readUInt16BE(reader.offset);
+        reader.offset += 2;
+
+        var d = new Date();
+        d.setFullYear(year);
+        d.setMonth(month);
+        d.setDate(date);
+        d.setHours(hours);
+        d.setMinutes(minutes);
+        d.setSeconds(seconds);
+        d.setMilliseconds(milliseconds);
 
         result = new Date(buffer.slice(skip, skip + length).toString('utf8'));
-        reader.offset += 2 + length;
         return result;
     default:
         return null;
