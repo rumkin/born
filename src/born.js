@@ -5,17 +5,29 @@ var Writer = require('buffer-write');
 exports.encode = encode;
 exports.decode = decode;
 
-var types = {
-  null: 0x00,
-  object: 0x01,
-  array: 0x02,
-  buffer: 0x03,
-  string: 0x04,
-  boolean: 0x05,
-  date: 0x06,
-  numberPositive: 0x07,
-  numberNegative: 0x08,
-};
+function bornType(major, minor) {
+    return (major << 5) + minor;
+}
+
+// Primitives
+const TYPE_NULL = bornType(0, 0);
+const TYPE_TRUE = bornType(0, 1);
+const TYPE_FALSE = bornType(0, 2);
+
+// Numbers
+const TYPE_INT = bornType(1, 0);
+const TYPE_INT_NEG = bornType(1, 1);
+const TYPE_FLOAT = bornType(1, 2);
+const TYPE_FLOAT_NEG = bornType(1, 3);
+
+// Objects, Sets, Maps and other variable length structures
+const TYPE_OBJECT = bornType(2, 0);
+const TYPE_ARRAY = bornType(2, 1);
+const TYPE_BUFFER = bornType(2, 2);
+const TYPE_STRING = bornType(2, 3);
+
+// Others
+const TYPE_DATE = bornType(3, 0);
 
 function encodeBorn(value, writer) {
     if (arguments.length < 2) {
@@ -25,10 +37,10 @@ function encodeBorn(value, writer) {
     switch (typeof value) {
         case "object":
             if (value === null) {
-                writer.writeUInt16BE(types.null);
+                writer.writeUInt8(TYPE_NULL);
             } else if (Array.isArray(value)) {
-                writer.writeUInt16BE(types.array);
-                let length = value.length;
+                writer.writeUInt8(TYPE_ARRAY);
+                var length = value.length;
                 writer.writeUInt32BE(length);
 
                 // TODO write array length
@@ -39,18 +51,18 @@ function encodeBorn(value, writer) {
                     encodeBorn(value[i], writer);
                 }
             } else if (Buffer.isBuffer(value)) {
-                writer.writeUInt16BE(types.buffer);
+                writer.writeUInt8(TYPE_BUFFER);
                 writer.writeUInt32BE(value.length);
                 writer.write(value);
             } else if (value instanceof Date) {
-                writer.writeUInt16BE(types.date);
-                writer.write(dateToISO(value));
+                writer.writeUInt8(TYPE_DATE);
+                writer.write(dateToISOString(value));
             } else {
                 if (value.constructor !== Object) {
                     value = value.valueOf();
                 }
 
-                writer.writeUInt16BE(types.object);
+                writer.writeUInt8(TYPE_OBJECT);
 
                 var keys = Object.getOwnPropertyNames(value);
                 writer.writeUInt32BE(keys.length);
@@ -67,21 +79,35 @@ function encodeBorn(value, writer) {
             }
             break;
         case "string":
-            writer.writeUInt16BE(types.string);
+            writer.writeUInt8(TYPE_STRING);
             writer.writeUInt32BE(Buffer.byteLength(value));
             writer.write(value);
             break;
         case "boolean":
-            writer.writeUInt16BE(types.boolean);
-            writer.writeUInt8(value ? 0x01 : 0x00);
+            if (value) {
+                writer.writeUInt8(TYPE_TRUE);
+            } else {
+                writer.writeUInt8(TYPE_FALSE);
+            }
             break;
         case "number":
-            if (value >= 0) {
-                writer.writeUInt16BE(types.numberPositive);
-                writer.writeUInt32BE(value);
+        var tail = value % 1;
+            if (tail === 0) {
+                if (value >= 0) {
+                    writer.writeUInt8(TYPE_INT);
+                    writer.writeUInt32BE(value);
+                } else {
+                    writer.writeUInt8(TYPE_INT_NEG);
+                    writer.writeUInt32BE(-value);
+                }
             } else {
-                writer.writeUInt16BE(types.numberNegative);
-                writer.writeUInt32BE(-value);
+                if (value >= 0) {
+                    writer.writeUInt8(TYPE_FLOAT);
+                    writer.writeDoubleBE(value);
+                } else {
+                    writer.writeUInt8(TYPE_FLOAT_NEG);
+                    writer.writeDoubleBE(-value);
+                }
             }
             break;
         default:
@@ -101,71 +127,95 @@ function decodeBorn(reader) {
     var buffer = reader.buffer;
     var length = buffer.length;
 
-    var type = buffer.readUInt16BE(reader.offset);
-    reader.offset += 2;
+    var type = buffer.readUInt8(reader.offset);
+    var major = type >> 5;
+    // var minor = type & 31;
 
-    switch (type) {
-    case types.null:
-        return null;
-    case types.object:
-        result = {};
-        var n = buffer.readUInt32BE(reader.offset);
-        reader.offset += 8;
-        var key; value;
-        while (n--) {
-            key = decodeBorn(reader);
-            value = decodeBorn(reader);
-            result[key] = value;
-        }
-        return result;
-    case types.array:
-            var n = buffer.readUInt32BE(reader.offset);
-            var i = -1;
-            result = new Array(n);
-            reader.offset += 8;
-            var key, value;
+    reader.offset += 1;
 
-            while (++i < n) {
-                result[i] = decodeBorn(reader);
+    switch (major) {
+        // Primitives
+        case 0:
+        // Numbers
+        case 1:
+            switch (type) {
+                case TYPE_NULL:
+                    return null;
+                case TYPE_TRUE:
+                    return true;
+                case TYPE_FALSE:
+                    return false;
+                case TYPE_INT:
+                    result = buffer.readUInt32BE(reader.offset);
+                    reader.offset += 4;
+                    return result;
+                case TYPE_INT_NEG:
+                    result = -buffer.readUInt32BE(reader.offset);
+                    reader.offset += 4;
+                    return result;
+                case TYPE_FLOAT:
+                    result = buffer.readDoubleBE(reader.offset);
+                    reader.offset += 8;
+                    return result;
+                case TYPE_FLOAT_NEG:
+                    result = buffer.readDoubleBE(reader.offset);
+                    reader.offset += 8;
+                    return -result;
             }
-            return result;
-    case types.buffer:
-        var length = buffer.readUInt32BE(reader.offset);
-        result = buffer.slice(reader.offset + 4, length);
-        var skip = reader.offset + 4;
-        result = buffer.slice(skip, skip + length);
-        reader.offset += skip + length;
-        return result;
-    case types.string:
-        var length = buffer.readUInt32BE(reader.offset);
-        var skip = reader.offset + 4;
+        break;
+        // Structures
+        case 2:
+        // Other
+        case 3:
+            switch (type) {
+                case TYPE_OBJECT:
+                    result = {};
+                    var n = buffer.readUInt32BE(reader.offset);
+                    reader.offset += 8;
+                    var key; value;
+                    while (n--) {
+                        key = decodeBorn(reader);
+                        value = decodeBorn(reader);
+                        result[key] = value;
+                    }
+                    return result;
+                case TYPE_ARRAY:
+                        var n = buffer.readUInt32BE(reader.offset);
+                        var i = -1;
+                        result = new Array(n);
+                        reader.offset += 8;
+                        var key, value;
 
-        result = buffer.slice(skip, skip + length).toString('utf8');
-        reader.offset += 4 + length;
-        return result;
-    case types.numberPositive:
-        result = buffer.readUInt32BE(reader.offset);
-        reader.offset += 4;
-        return result;
-    case types.numberNegative:
-        result = -buffer.readUInt32BE(reader.offset);
-        reader.offset += 4;
-        return result;
-    case types.boolean:
-        result = buffer.readUInt8(reader.offset) === 1
-            ? true
-            : false;
+                        while (++i < n) {
+                            result[i] = decodeBorn(reader);
+                        }
+                        return result;
+                case TYPE_STRING:
+                    var length = buffer.readUInt32BE(reader.offset);
+                    var skip = reader.offset + 4;
 
-        reader.offset += 1;
-        return result;
-    case types.date:
-        var skip = reader.offset;
-        var valueLength = 24;
-        result = new Date(buffer.toString('utf8', skip, skip + valueLength));
-        reader.offset += valueLength;
-        return result;
-    default:
-        return null;
+                    result = buffer.slice(skip, skip + length).toString('utf8');
+                    reader.offset += 4 + length;
+                    return result;
+                case TYPE_BUFFER:
+                    var length = buffer.readUInt32BE(reader.offset);
+                    result = buffer.slice(reader.offset + 4, length);
+                    var skip = reader.offset + 4;
+                    result = buffer.slice(skip, skip + length);
+                    reader.offset += skip + length;
+                    return result;
+                case TYPE_DATE:
+                    var skip = reader.offset;
+                    var dateLength = 28;
+
+                    result = new Date(buffer.toString('utf8', skip, skip + dateLength));
+                    reader.offset += dateLength;
+                    return result;
+            }
+        break;
+
+        default:
+            return null;
     }
 }
 
@@ -203,14 +253,14 @@ function lpad(str, pad, length) {
  * @param  {Date} date Date obect.
  * @return {string}      ISO date string like: 2015-10-08T18:37:32+0300
  */
-function dateToISO(date) {
+function dateToISOString(date) {
   var result = date.getFullYear().toString()
-    + lpad(date.getMonth() + 1, '0', 2)
-    + lpad(date.getDate(), '0', 2)
+    + '-' + lpad(date.getMonth() + 1, '0', 2)
+    + '-' + lpad(date.getDate(), '0', 2)
     + 'T'
     + lpad(date.getHours(), '0', 2)
-    + lpad(date.getMinutes(), '0', 2)
-    + lpad(date.getSeconds(), '0', 2)
+    + ':' + lpad(date.getMinutes(), '0', 2)
+    + ':' + lpad(date.getSeconds(), '0', 2)
     + '.' + lpad(date.getMilliseconds(), '0', 3)
     + minutesToHours(date.getTimezoneOffset());
 
@@ -220,6 +270,6 @@ function dateToISO(date) {
 function minutesToHours(minutes) {
   var sign = minutes > -1 ? '+' : '-';
   var hours = Math.abs(Math.ceil(minutes/60));
-  minutes = minutes % 60;
+  minutes = Math.abs(minutes % 60);
   return sign + lpad(hours, '0', 2) + lpad(minutes, '0', 2);
 }

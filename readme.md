@@ -19,55 +19,88 @@ This is the first experimental implementation in pure JavaScript and it's
 already faster then CBOR (on encode/decode) and a just little bit faster then
 MsgPack written in C++ (on decode, but not encode yet). So I believe it has a potential to future optimization.
 
-**NOTE** Alpha version does not support float and int64 numbers.
+**NOTE** Alpha version does not support int64 numbers.
 
-## Specification
+## Types
 
 ### NULL
 
 ```
-00 - NULL type byte
+0x00 - NULL type byte
+```
+
+### True
+
+```
+0x01 - Boolean true type byte
+```
+
+### False
+
+```
+0x02 - Boolean true type byte
+```
+
+### Positive integer
+
+```
+0x20 - Positive integer type byte
+00 00 00 00 - uint32 - Absolute integer value
+```
+
+### Negative integer
+
+```
+0x21 - Negative integer type byte
+00 00 00 00 - uint32 - Absolute integer value
+```
+
+### Positive float
+
+```
+0x20 - Positive float type byte
+00 00 00 00 00 00 00 00 - double - Absolute float value
+```
+
+### Negative float
+
+```
+0x21 - Negative float type byte
+00 00 00 00 00 00 00 00 - double - Absolute float value
 ```
 
 ### Object
 
 ```
-01 - Object type byte
-00 00 - uint32 - Object keys length
-00 00 - uint32 - Object bytes length. Null if unknown.
+0x40 - Object type byte
+00 00 00 00 - uint32 - Object keys length
+00 00 00 00 - uint32 - Object bytes length. Null if unknown.
 ... - Data key pairs
 ```
 
 ### Array
 
 ```
-02 - Array type byte
-00 00 - uint32 - Array items length
-00 00 - uint32 - Array bytes length. Null if unknown.
+0x41 - Array type byte
+00 00 00 00 - uint32 - Array items length
+00 00 00 00 - uint32 - Array bytes length. Null if unknown.
 ... - Data values
 ```
 
 ### Buffer
 
 ```
-03 - Buffer type byte
-00 00 - uint32 - Buffer bytes length.
+0x42 - Buffer type byte
+00 00 00 00 - uint32 - Buffer bytes length.
 ... - Buffer bytes
 ```
 
 ### String
 
 ```
-04 - String type byte
-00 00 - uint32 - String bytes length.
+0x43 - String type byte
+00 00 00 00 - uint32 - String bytes length.
 ... - Chars
-```
-
-### Boolean
-
-```
-05 - Boolean type byte
-00 - uint8 - Boolean value
 ```
 
 ### Date
@@ -76,20 +109,6 @@ Date stored as a string representation of ISO Date. It has format
 `YYYYMMDDTHHmmss.msZ`.
 
 ```
-02 - Date type byte
-... - Date ISO string.
-```
-
-### Positive number
-
-```
-07 - Positive number type byte
-00 00 - uint32 - Absolute number value
-```
-
-### Negative number
-
-```
-08 - Negative number type byte
-00 00 - uint32 - Absolute number value
+0x60 - Date type byte
+... - [28]byte - Date ISO string.
 ```
