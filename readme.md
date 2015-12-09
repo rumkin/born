@@ -72,11 +72,11 @@ MsgPack written in C++ (on decode, but not encode yet). So I believe it has a po
 
 ### Date
 
-**NOTE**. Date representation will be changed soon.
+Date stored as a string representation of ISO Date. It has format
+`YYYYMMDDTHHmmss.msZ`.
 
 ```
 02 - Date type byte
-00 00 - uint32 - ISO date bytes length.
 ... - Date ISO string.
 ```
 

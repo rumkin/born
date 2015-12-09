@@ -160,9 +160,9 @@ function decodeBorn(reader) {
         return result;
     case types.date:
         var skip = reader.offset;
-
-        result = new Date(buffer.toString('utf8', skip, skip + 25));
-        reader.offset += 25;
+        var valueLength = 24;
+        result = new Date(buffer.toString('utf8', skip, skip + valueLength));
+        reader.offset += valueLength;
         return result;
     default:
         return null;
@@ -212,7 +212,6 @@ function dateToISO(date) {
     + lpad(date.getMinutes(), '0', 2)
     + lpad(date.getSeconds(), '0', 2)
     + '.' + lpad(date.getMilliseconds(), '0', 3)
-    + 's'
     + minutesToHours(date.getTimezoneOffset());
 
   return result;
