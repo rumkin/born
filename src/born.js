@@ -15,16 +15,31 @@ const TYPE_TRUE = bornType(0, 1);
 const TYPE_FALSE = bornType(0, 2);
 
 // Numbers
+// Integer 32
 const TYPE_INT = bornType(1, 0);
 const TYPE_INT_NEG = bornType(1, 1);
+
+// Integer 64
 const TYPE_FLOAT = bornType(1, 2);
 const TYPE_FLOAT_NEG = bornType(1, 3);
+
+const TYPE_INT8 = bornType(1, 4);
+const TYPE_INT8_NEG = bornType(1, 5);
+
+const TYPE_INT16 = bornType(1, 6);
+const TYPE_INT16_NEG = bornType(1, 7);
 
 // Objects, Sets, Maps and other variable length structures
 const TYPE_OBJECT = bornType(2, 0);
 const TYPE_ARRAY = bornType(2, 1);
 const TYPE_BUFFER = bornType(2, 2);
 const TYPE_STRING = bornType(2, 3);
+
+const TYPE_OBJECT_SHORT = bornType(2, 4);
+const TYPE_ARRAY_SHORT = bornType(2, 5);
+const TYPE_STRING_SHORT = bornType(2, 6);
+
+const TYPE_STRING_MIDDLE = bornType(2, 9);
 
 // Others
 const TYPE_DATE = bornType(3, 0);
@@ -39,15 +54,19 @@ function encodeBorn(value, writer) {
             if (value === null) {
                 writer.writeUInt8(TYPE_NULL);
             } else if (Array.isArray(value)) {
-                writer.writeUInt8(TYPE_ARRAY);
                 var length = value.length;
-                writer.writeUInt32BE(length);
+                if (length < 256) {
+                    writer.writeUInt8(TYPE_ARRAY_SHORT);
+                    writer.writeUInt8(length);
+                } else {
+                    writer.writeUInt8(TYPE_ARRAY);
+                    writer.writeUInt32BE(length);
+                }
 
                 // TODO write array length
-                writer.writeUInt32BE(0);
-                var l = value.length;
+                // writer.writeUInt32BE(0);
                 var i = -1;
-                while (++i < l) {
+                while (++i < length) {
                     encodeBorn(value[i], writer);
                 }
             } else if (Buffer.isBuffer(value)) {
@@ -62,19 +81,23 @@ function encodeBorn(value, writer) {
                     value = value.valueOf();
                 }
 
-                writer.writeUInt8(TYPE_OBJECT);
-
                 var keys = Object.getOwnPropertyNames(value);
-                writer.writeUInt32BE(keys.length);
+                var length = keys.length;
+                if (length < 256) {
+                    writer.writeUInt8(TYPE_OBJECT_SHORT);
+                    writer.writeUInt8(length);
+                } else {
+                    writer.writeUInt8(TYPE_OBJECT);
+                    writer.writeUInt32BE(length);
+                }
                 var bi = writer._parts.length - 1;
                 // TODO write object length
-                writer.writeUInt32BE(0);
+                // writer.writeUInt32BE(0);
 
-                var l = keys.length;
                 var i = -1;
                 var elements = 0;
                 var key;
-                while (++i < l) {
+                while (++i < length) {
                     key = keys[i];
                     if (value[key] === undefined) {
                         continue;
@@ -87,8 +110,17 @@ function encodeBorn(value, writer) {
             }
             break;
         case "string":
-            writer.writeUInt8(TYPE_STRING);
-            writer.writeUInt32BE(Buffer.byteLength(value));
+            var byteLength = Buffer.byteLength(value);
+            if (byteLength < 255) {
+                writer.writeUInt8(TYPE_STRING_SHORT);
+                writer.writeUInt8(byteLength);
+            } else if (byteLength < 65536) {
+                writer.writeUInt8(TYPE_STRING_MIDDLE);
+                writer.writeUInt16BE(byteLength);
+            } else {
+                writer.writeUInt8(TYPE_STRING);
+                writer.writeUInt32BE(byteLength);
+            }
             writer.write(value);
             break;
         case "boolean":
@@ -101,12 +133,23 @@ function encodeBorn(value, writer) {
         case "number":
         var tail = value % 1;
             if (tail === 0) {
-                if (value >= 0) {
-                    writer.writeUInt8(TYPE_INT);
-                    writer.writeUInt32BE(value);
+                var abs = Math.abs(value);
+                if (abs < 256) {
+                    if (value >= 0) {
+                        writer.writeUInt8(TYPE_INT8);
+                        writer.writeUInt8(value);
+                    } else {
+                        writer.writeUInt8(TYPE_INT8_NEG);
+                        writer.writeUInt8(-value);
+                    }
                 } else {
-                    writer.writeUInt8(TYPE_INT_NEG);
-                    writer.writeUInt32BE(-value);
+                    if (value >= 0) {
+                        writer.writeUInt8(TYPE_INT);
+                        writer.writeUInt32BE(value);
+                    } else {
+                        writer.writeUInt8(TYPE_INT_NEG);
+                        writer.writeUInt32BE(-value);
+                    }
                 }
             } else {
                 if (value >= 0) {
@@ -165,6 +208,14 @@ function decodeBorn(reader) {
                     result = -buffer.readUInt32BE(reader.offset);
                     reader.offset += 4;
                     return result;
+                case TYPE_INT8:
+                    result = buffer.readUInt8(reader.offset);
+                    reader.offset += 1;
+                    return result;
+                case TYPE_INT8_NEG:
+                    result = -buffer.readUInt8(reader.offset);
+                    reader.offset += 1;
+                    return result;
                 case TYPE_FLOAT:
                     result = buffer.readDoubleBE(reader.offset);
                     reader.offset += 8;
@@ -183,7 +234,18 @@ function decodeBorn(reader) {
                 case TYPE_OBJECT:
                     result = {};
                     var n = buffer.readUInt32BE(reader.offset);
-                    reader.offset += 8;
+                    reader.offset += 4;
+                    var key; value;
+                    while (n--) {
+                        key = decodeBorn(reader);
+                        value = decodeBorn(reader);
+                        result[key] = value;
+                    }
+                    return result;
+                case TYPE_OBJECT_SHORT:
+                    result = {};
+                    var n = buffer.readUInt8(reader.offset);
+                    reader.offset += 1;
                     var key; value;
                     while (n--) {
                         key = decodeBorn(reader);
@@ -192,22 +254,47 @@ function decodeBorn(reader) {
                     }
                     return result;
                 case TYPE_ARRAY:
-                        var n = buffer.readUInt32BE(reader.offset);
-                        var i = -1;
-                        result = new Array(n);
-                        reader.offset += 8;
-                        var key, value;
+                    var n = buffer.readUInt32BE(reader.offset);
+                    var i = -1;
+                    result = new Array(n);
+                    reader.offset += 4;
+                    var key, value;
 
-                        while (++i < n) {
-                            result[i] = decodeBorn(reader);
-                        }
-                        return result;
+                    while (++i < n) {
+                        result[i] = decodeBorn(reader);
+                    }
+                    return result;
+                case TYPE_ARRAY_SHORT:
+                    var n = buffer.readUInt8(reader.offset);
+                    var i = -1;
+                    result = new Array(n);
+                    reader.offset += 1;
+                    var key, value;
+
+                    while (++i < n) {
+                        result[i] = decodeBorn(reader);
+                    }
+                    return result;
                 case TYPE_STRING:
                     var length = buffer.readUInt32BE(reader.offset);
                     var skip = reader.offset + 4;
 
                     result = buffer.slice(skip, skip + length).toString('utf8');
                     reader.offset += 4 + length;
+                    return result;
+                case TYPE_STRING_SHORT:
+                    var length = buffer.readUInt8(reader.offset);
+                    var skip = reader.offset + 1;
+
+                    result = buffer.slice(skip, skip + length).toString('utf8');
+                    reader.offset += 1 + length;
+                    return result;
+                case TYPE_STRING_MIDDLE:
+                    var length = buffer.readUInt16BE(reader.offset);
+                    var skip = reader.offset + 2;
+
+                    result = buffer.slice(skip, skip + length).toString('utf8');
+                    reader.offset += 2 + length;
                     return result;
                 case TYPE_BUFFER:
                     var length = buffer.readUInt32BE(reader.offset);
