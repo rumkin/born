@@ -32,7 +32,7 @@ already faster then CBOR (on encode/decode) and a little bit faster then MsgPack
 All types separated into 4 groups:
 * Primitives like `null`, `true` or `false`.
 * Numbers like `integer` and `float`.
-* Sets and complex objects: `object`, `array`, `string` or `buffer`
+* Sets and complex objects: `object`, `array`, `string`, `buffer` and `typed object`
 * Other types like `Date`.
 
 ### NULL
@@ -85,9 +85,17 @@ All types separated into 4 groups:
 
 ```
 0x40 - Object type byte
-00 00 00 00 - uint32 - Object keys length
+00 00 00 00 - uint32 - Object keys length.
 00 00 00 00 - uint32 - Object bytes length. Null if unknown.
 ... - Data key pairs
+```
+
+### Typed Object
+
+```
+0x76 - Typed object byte
+00 x 16 – 16 bytes length string – Object type string name.
+... – Custom object bytes
 ```
 
 ### Array

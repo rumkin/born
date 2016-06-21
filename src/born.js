@@ -1,9 +1,9 @@
 'use strict';
 
 var Writer = require('buffer-write');
-
-exports.encode = encode;
-exports.decode = decode;
+module.exports = Born;
+Born.encode = encode;
+Born.decode = decode;
 
 function bornType(major, minor) {
     return (major << 5) + minor;
@@ -40,13 +40,27 @@ const TYPE_ARRAY_SHORT = bornType(2, 5);
 const TYPE_STRING_SHORT = bornType(2, 6);
 
 const TYPE_STRING_MIDDLE = bornType(2, 9);
+// Typed object
+const TYPE_TYPED_OBJECT = bornType(2, 12);
 
 // Others
 const TYPE_DATE = bornType(3, 0);
 
-function encodeBorn(value, writer) {
-    if (arguments.length < 2) {
+function encodeBorn(value, writer, options) {
+    if (! writer) {
         writer = new Writer();
+    }
+
+    options = options || {};
+
+    var customTypes = options.customTypes || {};
+    var subencode = function(value) {
+        return encodeBorn(value, writer, {
+            customTypes: customTypes,
+        });
+    };
+    if (customTypes instanceof Map === false) {
+        customTypes = getCustomTypesMap(customTypes);
     }
 
     switch (typeof value) {
@@ -76,13 +90,18 @@ function encodeBorn(value, writer) {
             } else if (value instanceof Date) {
                 writer.writeUInt8(TYPE_DATE);
                 writer.write(dateToISOString(value));
+            } else if (customTypes.has(value.constructor)) {
+                let type = customTypes.get(value.constructor);
+                writer.writeUInt8(TYPE_TYPED_OBJECT);
+                writer.write(Buffer.from(type.type));
+                type.encode(value, writer, subencode);
             } else {
                 if (value.constructor !== Object) {
-                    value = value.valueOf();
+                    value = value.valueOf(); // custom object...
                 }
 
-                var keys = Object.getOwnPropertyNames(value);
-                var length = keys.length;
+                let keys = Object.getOwnPropertyNames(value);
+                let length = keys.length;
                 if (length < 256) {
                     writer.writeUInt8(TYPE_OBJECT_SHORT);
                     writer.writeUInt8(length);
@@ -90,20 +109,20 @@ function encodeBorn(value, writer) {
                     writer.writeUInt8(TYPE_OBJECT);
                     writer.writeUInt32BE(length);
                 }
-                var bi = writer._parts.length - 1;
+                let bi = writer._parts.length - 1;
                 // TODO write object length
                 // writer.writeUInt32BE(0);
 
-                var i = -1;
-                var elements = 0;
-                var key;
+                let i = -1;
+                let elements = 0;
+                let key;
                 while (++i < length) {
                     key = keys[i];
                     if (value[key] === undefined) {
                         continue;
                     }
                     encodeBorn(key, writer);
-                    encodeBorn(value[key], writer);
+                    encodeBorn(value[key], writer, {customTypes: customTypes});
                     elements++;
                 }
                 writer._parts[bi].value = elements;
@@ -172,11 +191,11 @@ function encodeBorn(value, writer) {
     return writer;
 }
 
-function encode(value) {
-    return encodeBorn(value).toBuffer();
+function encode(value, options) {
+    return encodeBorn(value, null, options).toBuffer();
 }
 
-function decodeBorn(reader) {
+function decodeBorn(reader, options) {
     var result;
 
     var buffer = reader.buffer;
@@ -185,6 +204,15 @@ function decodeBorn(reader) {
     var type = buffer.readUInt8(reader.offset);
     var major = type >> 5;
     // var minor = type & 31;
+    options = options || {};
+    var customTypes = options.customTypes || {};
+    if (!(customTypes instanceof Map)) {
+        customTypes = getCustomTypesMap(customTypes);
+    }
+
+    var subdecoder= function() {
+        return decodeBorn(reader, {customTypes: customTypes});
+    };
 
     reader.offset += 1;
 
@@ -237,8 +265,8 @@ function decodeBorn(reader) {
                     reader.offset += 4;
                     var key; value;
                     while (n--) {
-                        key = decodeBorn(reader);
-                        value = decodeBorn(reader);
+                        key = subdecoder();
+                        value = subdecoder(reader);
                         result[key] = value;
                     }
                     return result;
@@ -248,8 +276,8 @@ function decodeBorn(reader) {
                     reader.offset += 1;
                     var key; value;
                     while (n--) {
-                        key = decodeBorn(reader);
-                        value = decodeBorn(reader);
+                        key = subdecoder(reader);
+                        value = subdecoder(reader);
                         result[key] = value;
                     }
                     return result;
@@ -261,7 +289,7 @@ function decodeBorn(reader) {
                     var key, value;
 
                     while (++i < n) {
-                        result[i] = decodeBorn(reader);
+                        result[i] = subdecoder(reader);
                     }
                     return result;
                 case TYPE_ARRAY_SHORT:
@@ -272,7 +300,7 @@ function decodeBorn(reader) {
                     var key, value;
 
                     while (++i < n) {
-                        result[i] = decodeBorn(reader);
+                        result[i] = subdecoder(reader);
                     }
                     return result;
                 case TYPE_STRING:
@@ -310,6 +338,14 @@ function decodeBorn(reader) {
                     result = new Date(buffer.toString('utf8', skip, skip + dateLength));
                     reader.offset += dateLength;
                     return result;
+                case TYPE_TYPED_OBJECT:
+                    let typeName = buffer.toString('utf8', reader.offset, reader.offset + 16);
+
+                    if (! customTypes.has(typeName)) {
+                        throw new Error('Decoding error: unknown type');
+                    }
+                    reader.offset += 16;
+                    return customTypes.get(typeName).decode(reader, subdecoder);
             }
         break;
 
@@ -318,14 +354,14 @@ function decodeBorn(reader) {
     }
 }
 
-function decode(buffer) {
+function decode(buffer, options) {
     var reader = {
         buffer: buffer,
         offset: 0
     };
 
     // TODO throw error if buffer length is greater the last offset.
-    return decodeBorn(reader);
+    return decodeBorn(reader, options);
 }
 
 
@@ -372,3 +408,40 @@ function minutesToHours(minutes) {
   minutes = Math.abs(minutes % 60);
   return sign + lpad(hours, '0', 2) + lpad(minutes, '0', 2);
 }
+
+function getCustomTypesMap(customTypes) {
+    var types = new Map();
+
+    Object.getOwnPropertyNames(customTypes)
+    .forEach(function(name){
+        var desc = customTypes[name];
+        var code = (name + ' '.repeat(16)).slice(0, 16);
+
+        types.set(desc.type, {
+            type: code,
+            encode: desc.encode,
+        });
+
+        types.set(code, {
+            decode: desc.decode,
+        });
+    });
+
+    return types;
+}
+
+function Born(options = {}) {
+    this.customTypes = getCustomTypesMap(options.customTypes || {});
+};
+
+Born.prototype.encode = function (value) {
+    return encode(value, {
+        customTypes: this.customTypes
+    });
+};
+
+Born.prototype.decode = function (value) {
+    return decode(value, {
+        customTypes: this.customTypes
+    });
+};
