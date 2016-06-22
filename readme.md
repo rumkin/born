@@ -93,7 +93,7 @@ All types separated into 4 groups:
 ### Typed Object
 
 ```
-0x76 - Typed object byte
+0x4a - Typed object byte
 00 x 16 – 16 bytes length string – Object type string name.
 ... – Custom object bytes
 ```
