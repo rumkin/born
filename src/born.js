@@ -91,10 +91,17 @@ function encodeBorn(value, writer, options) {
                 writer.writeUInt8(TYPE_DATE);
                 writer.write(dateToISOString(value));
             } else if (customTypes.has(value.constructor)) {
-                let type = customTypes.get(value.constructor);
+                let ctor = value.constructor;
+                let type = customTypes.get(ctor);
                 writer.writeUInt8(TYPE_TYPED_OBJECT);
                 writer.write(Buffer.from(type.type));
-                type.encode(value, writer, subencode);
+                if (type.encode) {
+                    type.encode(value, writer, subencode);
+                } else if ('valueOf' in ctor.prototype && typeof ctor.prototype.valueOf === 'function') {
+                    subencode(value.valueOf());
+                } else {
+                    throw new Error('Invalid type "' + type.type);
+                }
             } else {
                 if (value.constructor !== Object) {
                     value = value.valueOf(); // custom object...
@@ -345,7 +352,15 @@ function decodeBorn(reader, options) {
                         throw new Error('Decoding error: unknown type');
                     }
                     reader.offset += 16;
-                    return customTypes.get(typeName).decode(reader, subdecoder);
+                    let desc = customTypes.get(typeName);
+
+                    if (desc.decode) {
+                        return desc.decode(reader, subdecoder);
+                    } else if (typeof desc.type.fromValue === 'function') {
+                        return desc.type.fromValue(subdecoder());
+                    } else {
+                        throw new Error('Invalid type "' + typeName + '"');
+                    }
             }
         break;
 
@@ -423,6 +438,7 @@ function getCustomTypesMap(customTypes) {
         });
 
         types.set(code, {
+            type: desc.type,
             decode: desc.decode,
         });
     });
